@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>3D圆柱粒子生日蛋糕</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            background-color: #fdf6fd;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            overflow: hidden;
+        }
+        #cakeCanvas {
+            background: #ffffff;
+            border-radius: 16px;
+            box-shadow: 0 0 40px rgba(200,170,240,0.3);
+            max-width: 96vw;
+            max-height: 96vh;
+        }
+    </style>
+</head>
+<body>
+<canvas id="cakeCanvas"></canvas>
+
+<script>
+const canvas = document.getElementById('cakeCanvas');
+const ctx = canvas.getContext('2d');
+
+function resizeCanvas() {
+    const maxW = window.innerWidth * 0.96;
+    const maxH = window.innerHeight * 0.96;
+    const baseRatio = 720 / 1200;
+    let w = maxW;
+    let h = w / baseRatio;
+
+    if (h > maxH) {
+        h = maxH;
+        w = h * baseRatio;
+    }
+
+    canvas.width = w;
+    canvas.height = h;
+}
+resizeCanvas();
+window.addEventListener('resize', resizeCanvas);
+
+const mouse = {
+    x: -9999,
+    y: -9999,
+    forceRadius: 90,
+    rotateX: 0,
+    rotateY: 0,
+    drag: false
+};
+let dragStartX = 0, dragStartY = 0;
+
+const totalParticle = 3600;
+let particleList = [];
+
+function rotate3D(x, y, z, rx, ry) {
+    let cosY = Math.cos(ry), sinY = Math.sin(ry);
+    let x1 = x * cosY - z * sinY;
+    let z1 = x * sinY + z * cosY;
+    let cosX = Math.cos(rx), sinX = Math.sin(rx);
+    let y1 = y * cosX - z1 * sinX;
+    let z2 = y * sinX + z1 * cosX;
+    return { x: x1, y: y1, z: z2 };
+}
+
+function createCylinderCake(centerX, centerY) {
+    const points = [];
+    // 高度整体缩减30% ×0.7
+    const layers = [
+        { r: 115, h: 130 * 0.7, y: 160 },
+        { r: 90,  h: 110 * 0.7, y: 90 },
+        { r: 60,  h: 90 * 0.7,  y: 30 }
+    ];
+
+    layers.forEach(layer => {
+        for (let i = 0; i < 780; i++) {
+            const angle = Math.random() * Math.PI * 2;
+            const px = layer.r * Math.cos(angle);
+            const pz = layer.r * Math.sin(angle);
+            const py = layer.y + Math.random() * layer.h;
+            points.push({ ox: px, oy: py, oz: pz, type: 'cake' });
+        }
+    });
+
+    layers.forEach(layer => {
+        const topY = layer.y + layer.h;
+        for (let i = 0; i < 460; i++) {
+            const angle = Math.random() * Math.PI * 2;
+            const r = layer.r * Math.sqrt(Math.random());
+            const px = r * Math.cos(angle);
+            const pz = r * Math.sin(angle);
+            const py = topY;
+            points.push({ ox: px, oy: py, oz: pz, type: 'cake' });
+        }
+    });
+
+    const candleBaseY = 30;
+    for (let i = 0; i < 140; i++) {
+        const px = (Math.random() - 0.5) * 10;
+        const py = candleBaseY - Math.random() * 38;
+        const pz = (Math.random() - 0.5) * 10;
+        points.push({ ox: px, oy: py, oz: pz, type: 'candle' });
+    }
+    
+    for (let i = 0; i < 120; i++) {
+        const px = (Math.random() - 0.5) * 16;
+        const py = candleBaseY - 40 - Math.random() * 26;
+        const pz = (Math.random() - 0.5) * 16;
+        points.push({ ox: px, oy: py, oz: pz, type: 'fire' });
+    }
+
+    points.centerX = centerX;
+    points.centerY = centerY;
+    return points;
+}
+
+let cakeTargets;
+function resetCakePoints() {
+    cakeTargets = createCylinderCake(canvas.width/2, canvas.height/2 - 40);
+}
+resetCakePoints();
+
+class Particle {
+    constructor() {
+        this.x = Math.random() * canvas.width;
+        this.y = Math.random() * canvas.height;
+        const targetIdx = Math.floor(Math.random() * cakeTargets.length);
+        this.rawTarget = cakeTargets[targetIdx];
+        this.type = this.rawTarget.type;
+        
+        this.size = Math.random() * 1.4 + 0.5;
+        this.speed = Math.random() * 0.16 + 0.08;
+        this.flicker = Math.random() * Math.PI * 2;
+    }
+
+    update() {
+        const rotated = rotate3D(
+            this.rawTarget.ox,
+            this.rawTarget.oy,
+            this.rawTarget.oz,
+            mouse.rotateX,
+            mouse.rotateY
+        );
+        const targetX = cakeTargets.centerX + rotated.x;
+        const targetY = cakeTargets.centerY + rotated.y;
+
+        if (mouse.drag) {
+            const dx = this.x - mouse.x;
+            const dy = this.y - mouse.y;
+            const dist = Math.hypot(dx, dy);
+            
+            if (dist < mouse.forceRadius) {
+                const angle = Math.atan2(dy, dx);
+                const power = (mouse.forceRadius - dist) * 0.18;
+                this.x += Math.cos(angle) * power;
+                this.y += Math.sin(angle) * power;
+            } else {
+                this.x += (targetX - this.x) * this.speed;
+                this.y += (targetY - this.y) * this.speed;
+            }
+        } else {
+            this.x += (targetX - this.x) * this.speed;
+            this.y += (targetY - this.y) * this.speed;
+        }
+
+        if (this.type === 'fire') {
+            this.flicker += 0.2;
+            const bright = 180 + Math.sin(this.flicker) * 50;
+            this.color = `rgba(255, ${bright | 0}, 0, 0.95)`;
+            this.size = 1.6 + Math.sin(this.flicker) * 0.6;
+        } else if (this.type === 'candle') {
+            this.color = '#c0cdff';
+        } else {
+            this.color = `rgba(180, 160, 245, 0.5)`;
+        }
+    }
+
+    draw() {
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+        ctx.fillStyle = this.color;
+        ctx.fill();
+    }
+}
+
+function drawText() {
+    const scaleRatio = canvas.width / 720;
+    const titleFontSize = 110 * scaleRatio;
+    const subFontSize = 40 * scaleRatio;
+
+    ctx.font = `italic bold ${titleFontSize}px "Segoe Script", "Microsoft YaHei", cursive`;
+    ctx.fillStyle = 'rgba(140, 100, 200, 0.95)';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('Happy', canvas.width/2, 140 * scaleRatio);
+    ctx.fillText('Birthday!', canvas.width/2, 260 * scaleRatio);
+    
+    ctx.font = `${subFontSize}px Arial`;
+    ctx.fillStyle = '#ff9500';
+    // 下移一个字高
+    ctx.fillText('For Vanilla', canvas.width/2, (320 + 40) * scaleRatio);
+
+    // 右下角字号和For一致
+    ctx.font = `${subFontSize}px Arial`;
+    ctx.fillStyle = 'rgba(200, 170, 240, 0.8)';
+    ctx.textAlign = 'right';
+    ctx.fillText('From Laowa', canvas.width - 30 * scaleRatio, canvas.height - 30 * scaleRatio);
+}
+
+function init() {
+    particleList = [];
+    for (let i = 0; i < totalParticle; i++) {
+        particleList.push(new Particle());
+    }
+}
+
+function animate() {
+    ctx.fillStyle = 'rgba(255,255,255,0.2)';
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+
+    drawText();
+    particleList.forEach(p => {
+        p.update();
+        p.draw();
+    });
+    requestAnimationFrame(animate);
+}
+
+window.addEventListener('resize', () => {
+    resizeCanvas();
+    resetCakePoints();
+    init();
+});
+
+canvas.addEventListener('mousedown', e => { 
+    mouse.drag = true; 
+    dragStartX = e.clientX; 
+    dragStartY = e.clientY; 
+});
+canvas.addEventListener('mousemove', e => {
+    const rect = canvas.getBoundingClientRect();
+    mouse.x = e.clientX - rect.left;
+    mouse.y = e.clientY - rect.top;
+    if (mouse.drag) {
+        const dx = e.clientX - dragStartX;
+        const dy = e.clientY - dragStartY;
+        mouse.rotateY += dx * 0.004;
+        mouse.rotateX += dy * 0.004;
+        dragStartX = e.clientX;
+        dragStartY = e.clientY;
+    }
+});
+canvas.addEventListener('mouseup', () => { 
+    mouse.drag = false; 
+    mouse.x = -9999; 
+    mouse.y = -9999;
+});
+canvas.addEventListener('mouseleave', () => { 
+    mouse.x = -9999; 
+    mouse.y = -9999; 
+    mouse.drag = false; 
+});
+
+function resetTouchState() {
+    mouse.drag = false;
+    mouse.x = -9999;
+    mouse.y = -9999;
+}
+canvas.addEventListener('touchstart', e => { 
+    e.preventDefault(); 
+    mouse.drag = true; 
+    dragStartX = e.touches[0].clientX; 
+    dragStartY = e.touches[0].clientY; 
+});
+canvas.addEventListener('touchmove', e => { 
+    e.preventDefault();
+    const touch = e.touches[0];
+    const rect = canvas.getBoundingClientRect();
+    mouse.x = touch.clientX - rect.left;
+    mouse.y = touch.clientY - rect.top;
+    if (mouse.drag) {
+        const dx = touch.clientX - dragStartX;
+        const dy = touch.clientY - dragStartY;
+        mouse.rotateY += dx * 0.004;
+        mouse.rotateX += dy * 0.004;
+        dragStartX = touch.clientX;
+        dragStartY = touch.clientY;
+    }
+});
+canvas.addEventListener('touchend', resetTouchState);
+canvas.addEventListener('touchcancel', resetTouchState);
+
+init();
+animate();
+</script>
+</body>
+</html>
